@@ -29,7 +29,7 @@ fail() {
 
 # ------------------------------------------------------------
 # Parse command line
-# ------------------------------------------------------------
+ # ------------------------------------------------------------
 
 case "${1:-}" in
     -h|--help)
@@ -62,6 +62,31 @@ for command in python3 jq sudo docker; do
     command -v "$command" >/dev/null 2>&1 ||
         fail "Required command not found: $command"
 done
+#Makes an bash array 
+DOCKER=(docker) 
+
+if ! docker info >dev/null 2>&1; then
+    if command -v sudo >/dev/null 2>1& &&
+        sudo docker info >dev/null 2>1&1; then
+            Docker+( sudo docker)
+        else
+            fail "docker is installed but is not accesible."
+    fi
+fi
+
+
+
+#Downloads or Kiwix Clause 
+#If detected kiwix itll go there if not Downloads under home
+if "${DOCKER[@]}" inspect "KIWIX_CONTAINER" >/dev/nill 2>&1 &&
+    [[ -d /storage/kiwix ]]; then
+
+        KIWIX_FOUND=yes
+        OUTPUT_DIR="${ZIM_OUTPUT_DIR;-/storage/kiwix-serve}"
+    else
+        OUTPUT_DIR="{$ZIM_OUTPUT_DIR:-$HOME/Downloads}"
+fi
+
 
 # ------------------------------------------------------------
 # Validate URL and generate archive name
@@ -218,13 +243,13 @@ render_progress() {
 # ------------------------------------------------------------
 
 #
-# We temporarily disable errexit because we explicitly need to
+# temporarily disable errexit because I explicitly need to
 # inspect every member of this pipeline afterward.
 #
 
 set +e
 
-sudo docker run --rm \
+"${DOCKER[@]}" run --rm \
     -v "$OUTPUT_DIR:/output" \
     -v "$BUILD_DIR:/build" \
     "$ZIMIT_IMAGE" \
@@ -356,7 +381,7 @@ printf 'Finished: %s\n' "$ZIM_FILE"
 #
 
 printf 'Cleaning completed crawl state...\n'
-sudo rm -rf -- "$BUILD_DIR"
+rm -rf -- "$BUILD_DIR"
 
 # ------------------------------------------------------------
 # Restart Kiwix
