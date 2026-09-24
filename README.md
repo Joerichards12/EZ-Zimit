@@ -21,10 +21,6 @@ It does not implement its own crawler or ZIM writer. Instead, it provides a smal
 ## Usage and syntax
 There are custom arguments that I built into the cli so that you have the controls that actually matter, although if you do not care, I have kept the syntax sparse.
 
-zim <worker#> <URL>
-
-example: zim https://example.com
-
 The current version:
 1. Accepts a Website URL.
 2. Generates a filesystem-safe name from the URL
@@ -33,6 +29,55 @@ The current version:
 5. Runs the crawl with specified number of workers.
 6. Writes the resulting Zim to the configured directory.
 7. Restarts the directory
+
+
+### Basic usage
+
+zim <URL>
+
+EZ-Zimit uses one worker by default.
+
+Example:
+zim https://example.com/
+
+### Workers
+
+To specify the number of crawl workers, use `-N`, where `N` is the number of workers:
+
+zim -N <URL>
+
+For example, to use four workers:
+
+zim -4 https://example.com/
+
+### Help
+Use:
+
+<zim --help> or <zim -h>
+
+## Default Behavior
+Running:
+zim https://example.com/
+will:
+- Use `1` crawl worker.
+- Store temporary crawl data in `~/.cache/ez-zimit`.
+- Save the completed ZIM to `~/Downloads`.
+- Resume an interrupted crawl when the same command is run again.
+- Use a detected Kiwix installation at `/storage/kiwix` instead of `~/Downloads`.
+- Restart the detected Kiwix container after a successful crawl.
+
+## Configuration
+
+EZ-Zimit can also be configured with environment variables.
+| Variable | Purpose | Default |
+| --- | --- | --- |
+| `ZIM_OUTPUT_DIR` | Override the output directory | `~/Downloads` |
+| `ZIM_BUILD_ROOT` | Override the build/cache directory | `~/.cache/ez-zimit` |
+| `KIWIX_CONTAINER` | Kiwix Docker container name | `kiwix-serve` |
+| `ZIMIT_IMAGE` | Zimit
+Example:
+ZIM_OUTPUT_DIR="$HOME/ZIMs" zim https://example.com/
+
 
 ## Requirements 
 - Linux
@@ -43,12 +88,13 @@ The current version:
 
 
 ## Installation Guide 
-Installation is easy! 
-git clone https://github.com/Joerichards12/EZ-Zimit.git
-cd EZ-Zimit
-chmod +x zim.sh
-mkdir -p ~/.local/bin
-ln -s "$(pwd)/zim.sh" ~/.local/bin/zim
+### Installation is easy!
+#### Run these Commands in order
+1. git clone https://github.com/Joerichards12/EZ-Zimit.git
+2. cd EZ-Zimit
+3. chmod +x zim.sh
+4. mkdir -p ~/.local/bin
+5. ln -s "$(pwd)/zim.sh" ~/.local/bin/zim
 
 ## why I made the lil script 
 
