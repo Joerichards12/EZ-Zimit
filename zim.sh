@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-OUTPUT_DIR="${ZIM_OUTPUT_DIR:-/storage/kiwix}"
-BUILD_ROOT="${ZIM_BUILD_ROOT:-/storage/zimit-builds}"
+BUILD_ROOT="${ZIM_BUILD_ROOT:-$HOME/.cache/ez-zimit}"
 WORKERS=1
 
 KIWIX_CONTAINER="${KIWIX_CONTAINER:-kiwix-serve}"
+KIWIX_FOUND=no
 ZIMIT_IMAGE="${ZIMIT_IMAGE:-ghcr.io/openzim/zimit:3.1.3}"
 
 usage() {
@@ -27,10 +27,7 @@ fail() {
     exit 1
 }
 
-# ------------------------------------------------------------
 # Parse command line
- # ------------------------------------------------------------
-
 case "${1:-}" in
     -h|--help)
         usage
@@ -47,51 +44,44 @@ case "${1:-}" in
         ;;
 esac
 
-(( $# == 1 )) || {
+if (( $# != 1 )); then
     usage >&2
     exit 1
-}
+fi
 
 URL="$1"
 
-# ------------------------------------------------------------
 # Dependencies
-# ------------------------------------------------------------
-
-for command in python3 jq sudo docker; do
-    command -v "$command" >/dev/null 2>&1 ||
-        fail "Required command not found: $command"
+for cmd in python3 jq docker; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        fail "Required command not found: $cmd"
+    fi
 done
-#Makes an bash array 
-DOCKER=(docker) 
 
-if ! docker info >dev/null 2>&1; then
-    if command -v sudo >/dev/null 2>1& &&
-        sudo docker info >dev/null 2>1&1; then
-            Docker+( sudo docker)
-        else
-            fail "docker is installed but is not accesible."
+# Docker access
+DOCKER=(docker)
+
+if ! docker info >/dev/null 2>&1; then
+    if command -v sudo >/dev/null 2>&1 &&
+       sudo docker info >/dev/null 2>&1; then
+        DOCKER=(sudo docker)
+    else
+        fail "Docker is installed but is not accessible."
     fi
 fi
 
-
-
-#Downloads or Kiwix Clause 
-#If detected kiwix itll go there if not Downloads under home
-if "${DOCKER[@]}" inspect "KIWIX_CONTAINER" >/dev/nill 2>&1 &&
-    [[ -d /storage/kiwix ]]; then
-
-        KIWIX_FOUND=yes
-        OUTPUT_DIR="${ZIM_OUTPUT_DIR;-/storage/kiwix-serve}"
-    else
-        OUTPUT_DIR="{$ZIM_OUTPUT_DIR:-$HOME/Downloads}"
+# Output location
+if [[ -n "${ZIM_OUTPUT_DIR:-}" ]]; then
+    OUTPUT_DIR="$ZIM_OUTPUT_DIR"
+elif "${DOCKER[@]}" inspect "$KIWIX_CONTAINER" >/dev/null 2>&1 &&
+     [[ -d /storage/kiwix ]]; then
+    KIWIX_FOUND=yes
+    OUTPUT_DIR="/storage/kiwix"
+else
+    OUTPUT_DIR="$HOME/Downloads"
 fi
 
-
-# ------------------------------------------------------------
 # Validate URL and generate archive name
-# ------------------------------------------------------------
-
 if ! NAME=$(python3 - "$URL" <<'PY'
 import hashlib
 import re
@@ -108,7 +98,6 @@ base = (u.netloc + u.path).strip("/").replace("/", "-")
 base = re.sub(r"[^A-Za-z0-9_-]+", "-", base)
 base = base.strip("-").lower()
 
-# Avoid collisions between URLs that differ only by query string.
 if u.query:
     base += "-" + hashlib.sha256(
         u.query.encode()
@@ -131,18 +120,12 @@ if ! mkdir -p "$OUTPUT_DIR" "$BUILD_ROOT"; then
     fail "Could not create output/build directories."
 fi
 
-# ------------------------------------------------------------
-# Don't silently overwrite completed archives
-# ------------------------------------------------------------
-
+# Overwrite protection
 if [[ -e "$ZIM_FILE" ]]; then
     fail "'$ZIM_FILE' already exists. Move or remove it before creating a new archive."
 fi
 
-# ------------------------------------------------------------
-# Detect resumable build state
-# ------------------------------------------------------------
-
+# Detect resume state
 RESUMING=no
 
 if [[ -d "$BUILD_DIR" ]] &&
@@ -151,10 +134,6 @@ if [[ -d "$BUILD_DIR" ]] &&
 fi
 
 mkdir -p "$BUILD_DIR"
-
-# ------------------------------------------------------------
-# Log this invocation
-# ------------------------------------------------------------
 
 {
     printf '\n=== %s ===\n' "$(date -Is)"
@@ -176,10 +155,7 @@ fi
 
 printf '\n'
 
-# ------------------------------------------------------------
 # Progress display
-# ------------------------------------------------------------
-
 TTY_OUTPUT=0
 [[ -t 1 ]] && TTY_OUTPUT=1
 
@@ -200,7 +176,6 @@ render_progress() {
 
     if (( total > 0 )); then
         percent=$(( crawled * 100 / total ))
-
         (( percent > 100 )) && percent=100
     fi
 
@@ -222,8 +197,6 @@ render_progress() {
             "$percent" \
             "$failed"
     else
-        # If output is redirected to a file, don't spam thousands
-        # of progress updates. Print approximately every 10%.
         bucket=$(( percent / 10 ))
 
         if (( bucket > LAST_BUCKET )); then
@@ -238,15 +211,7 @@ render_progress() {
     fi
 }
 
-# ------------------------------------------------------------
 # Run Zimit
-# ------------------------------------------------------------
-
-#
-# temporarily disable errexit because I explicitly need to
-# inspect every member of this pipeline afterward.
-#
-
 set +e
 
 "${DOCKER[@]}" run --rm \
@@ -269,7 +234,6 @@ set +e
         and $j.context == "crawlStatus"
       )
       then
-
         [
           "PROGRESS",
           ($j.details.crawled // 0),
@@ -283,7 +247,6 @@ set +e
         | test("Processing WARC files|Calling warc2zim")
       )
       then
-
         "BUILD"
 
       else
@@ -295,14 +258,12 @@ set +e
 
     while IFS=$'\t' read -r kind a b c; do
         case "$kind" in
-
             PROGRESS)
                 render_progress "$a" "$b" "$c"
                 ;;
 
             BUILD)
                 if (( build_announced == 0 )); then
-
                     if (( TTY_OUTPUT )); then
                         printf '\r\033[K✓ Crawl complete. Building ZIM...\n'
                     else
@@ -312,15 +273,9 @@ set +e
                     build_announced=1
                 fi
                 ;;
-
         esac
     done
 }
-
-#
-# Capture these IMMEDIATELY. Running another command first
-# would replace PIPESTATUS.
-#
 
 PIPE_STATUSES=("${PIPESTATUS[@]}")
 
@@ -335,67 +290,37 @@ if (( TTY_OUTPUT )); then
     printf '\r\033[K'
 fi
 
-# ------------------------------------------------------------
-# Handle failed/interrupted crawl
-# ------------------------------------------------------------
-
 if (( DOCKER_STATUS != 0 )); then
-    printf 'Crawl stopped or failed (exit %d).\n' \
-        "$DOCKER_STATUS" >&2
-
-    printf 'Resume data preserved at: %s\n' \
-        "$BUILD_DIR" >&2
-
+    printf 'Crawl stopped or failed (exit %d).\n' "$DOCKER_STATUS" >&2
+    printf 'Resume data preserved at: %s\n' "$BUILD_DIR" >&2
     printf 'Run the same command again to resume.\n' >&2
-
-    printf 'Log: %s\n' \
-        "$LOG_FILE" >&2
-
+    printf 'Log: %s\n' "$LOG_FILE" >&2
     exit "$DOCKER_STATUS"
 fi
-
-# Docker succeeded, but make sure our own display/logging
-# machinery did too.
 
 if (( TEE_STATUS != 0 ||
       JQ_STATUS != 0 ||
       DISPLAY_STATUS != 0 )); then
-
     fail "The crawl completed, but the progress/logging pipeline failed. Check '$LOG_FILE'."
 fi
 
-# Zimit claims success. Verify the thing we actually wanted exists.
-
+# Success
 [[ -f "$ZIM_FILE" ]] ||
     fail "Zimit exited successfully but '$ZIM_FILE' was not created. Check '$LOG_FILE'."
 
-# ------------------------------------------------------------
-# Success
-# ------------------------------------------------------------
-
 printf 'Finished: %s\n' "$ZIM_FILE"
-
-#
-# The finished ZIM exists, so the resumable WARC/build state
-# is no longer necessary.
-#
 
 printf 'Cleaning completed crawl state...\n'
 rm -rf -- "$BUILD_DIR"
 
-# ------------------------------------------------------------
-# Restart Kiwix
-# ------------------------------------------------------------
+if [[ "$KIWIX_FOUND" == yes ]]; then
+    printf 'Restarting Kiwix container %q...\n' "$KIWIX_CONTAINER"
 
-printf 'Restarting Kiwix container %q...\n' \
-    "$KIWIX_CONTAINER"
-
-if ! sudo docker inspect "$KIWIX_CONTAINER" >/dev/null 2>&1; then
-    fail "ZIM was created, but Kiwix container '$KIWIX_CONTAINER' does not exist."
+    if "${DOCKER[@]}" restart "$KIWIX_CONTAINER" >/dev/null; then
+        printf 'Kiwix restarted.\n'
+    else
+        printf 'WARNING: ZIM created, but Kiwix failed to restart.\n' >&2
+    fi
 fi
 
-if ! sudo docker restart "$KIWIX_CONTAINER" >/dev/null; then
-    fail "ZIM was created, but Kiwix container '$KIWIX_CONTAINER' failed to restart."
-fi
-
-printf 'Kiwix restarted. Done.\n'
+printf 'Done.\n'
